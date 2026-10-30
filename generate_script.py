@@ -4,7 +4,7 @@ import json
 import urllib.request
 import urllib.error
 
-API_KEY = os.environ["GEMINI_API_KEY"]
+API_KEY = os.environ["SKRPITA_API"]
 MODEL = "gemini-2.5-flash"
 
 prompt = """
