@@ -4,15 +4,20 @@ import json
 import urllib.request
 import urllib.error
 
-API_KEY = os.environ["SKRPITA_API"]
+API_KEY = os.environ.get("SKRIPTA_KEY")
+
+if not API_KEY:
+    raise RuntimeError("SKRIPTA_KEY nije pronađen u GitHub Secrets.")
+
 MODEL = "gemini-2.5-flash"
 
 prompt = """
-You are the creative scriptwriter for MIND FORGE.
+You are the official scriptwriter for MIND FORGE.
 
 Brand slogan: KNOW MORE. THINK BIGGER.
 
-Create one original YouTube Shorts script in English.
+Create one original English YouTube Shorts narration.
+
 Topic: A surprising psychological fact about human behavior.
 
 Requirements:
@@ -20,12 +25,12 @@ Requirements:
 - Start with a powerful hook.
 - Use simple, natural English.
 - Keep viewers curious.
-- Include useful, interesting information.
+- Provide interesting and useful information.
+- Do not invent facts or statistics.
 - End with a memorable sentence.
-- No fake facts or unsupported statistics.
 
-Return only the spoken narration, without headings,
-camera directions or explanations.
+Return only the spoken narration.
+No headings or explanations.
 """
 
 url = (
@@ -35,7 +40,11 @@ url = (
 
 data = {
     "contents": [
-        {"parts": [{"text": prompt}]}
+        {
+            "parts": [
+                {"text": prompt}
+            ]
+        }
     ],
     "generationConfig": {
         "temperature": 0.8,
@@ -50,13 +59,30 @@ request = urllib.request.Request(
     method="POST"
 )
 
-with urllib.request.urlopen(request, timeout=60) as response:
-    result = json.loads(response.read().decode("utf-8"))
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        result = json.loads(response.read().decode("utf-8"))
 
-script = result["candidates"][0]["content"]["parts"][0]["text"]
+    candidates = result.get("candidates", [])
 
-with open("script.txt", "w", encoding="utf-8") as file:
-    file.write(script)
+    if not candidates:
+        raise RuntimeError(
+            "Gemini nije vratio scenario: " + json.dumps(result)
+        )
 
-print("MIND FORGE SCRIPT GENERATED!")
-print(script)
+    script = candidates[0]["content"]["parts"][0]["text"]
+
+    with open("script.txt", "w", encoding="utf-8") as file:
+        file.write(script)
+
+    print("MIND FORGE SCRIPT GENERATED!")
+    print(script)
+
+except urllib.error.HTTPError as error:
+    print("HTTP ERROR:", error.code)
+    print(error.read().decode("utf-8", errors="replace"))
+    raise
+
+except Exception as error:
+    print("ERROR:", repr(error))
+    raise
