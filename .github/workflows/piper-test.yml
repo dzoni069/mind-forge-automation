@@ -6,25 +6,26 @@ on:
 
 jobs:
   generate-voice:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Install Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Install Piper
         run: |
+          set -eux
           python -m pip install --upgrade pip
           pip install piper-tts
+          piper --help
 
       - name: Generate English voice
         run: |
-          echo "Welcome to Mind Forge. Learn more. Think bigger." | \
-          python -m piper \
-            --model en_US-lessac-medium \
-            --output_file mind-forge-test.wav
+          set -eux
+          echo "Welcome to Mind Forge. Learn more. Think bigger." | piper --model en_US-lessac-medium --output_file mind-forge-test.wav
+          ls -lh mind-forge-test.wav
 
       - name: Save audio file
         uses: actions/upload-artifact@v4
