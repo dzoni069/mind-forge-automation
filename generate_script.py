@@ -9,8 +9,7 @@ API_KEY = os.environ.get("SKRIPTA_KEY")
 if not API_KEY:
     raise RuntimeError("SKRIPTA_KEY nije pronađen u GitHub Secrets.")
 
-MODEL = "gemini-2.5-flash"
-
+MODEL = "gemini-3.5-flash-lite"
 prompt = """
 You are the official scriptwriter for MIND FORGE.
 
