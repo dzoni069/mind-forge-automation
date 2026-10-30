@@ -1,5 +1,5 @@
 
-name: Mind Forge Script Generator
+name: MIND FORGE - Script and Voice
 
 on:
   workflow_dispatch:
@@ -17,15 +17,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Generate script
+      - name: Install Piper
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install piper-tts
+
+      - name: Generate script and voice
         env:
           SKRIPTA_KEY: ${{ secrets.SKRIPTA_KEY }}
         run: python generate_script.py
 
-      - name: Save script
+      - name: Save script and audio
         uses: actions/upload-artifact@v4
         with:
-          name: mind-forge-script
-          path: script.txt
+          name: mind-forge-video-assets
+          path: |
+            script.txt
+            voice.wav
           if-no-files-found: error
           retention-days: 7
