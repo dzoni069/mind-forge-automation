@@ -1,0 +1,34 @@
+
+name: Piper TTS Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-voice:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Piper
+        run: |
+          python -m pip install --upgrade pip
+          pip install piper-tts
+
+      - name: Generate English voice
+        run: |
+          echo "Welcome to Mind Forge. Learn more. Think bigger." | \
+          python -m piper \
+            --model en_US-lessac-medium \
+            --output_file mind-forge-test.wav
+
+      - name: Save audio file
+        uses: actions/upload-artifact@v4
+        with:
+          name: mind-forge-voice
+          path: mind-forge-test.wav
+          retention-days: 7
