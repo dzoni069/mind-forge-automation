@@ -1,0 +1,29 @@
+
+name: Gemini Script Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Generate script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python generate_script.py
+
+      - name: Save script
+        uses: actions/upload-artifact@v4
+        with:
+          name: mind-forge-script
+          path: script.txt
