@@ -1,67 +1,31 @@
 
-import os
-import json
-import urllib.request
-import urllib.error
+name: Mind Forge Script Generator
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
+on:
+  workflow_dispatch:
 
-if not API_KEY:
-    raise RuntimeError("GEMINI_API_KEY is missing from GitHub Secrets")
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
 
-MODEL = "gemini-2.5-flash"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-prompt = """
-Write an original 45-60 second YouTube Shorts narration
-for MIND FORGE about a surprising psychological fact.
-Use a powerful hook, simple English and a memorable ending.
-Return only the narration. Do not invent statistics.
-"""
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
 
-url = (
-    f"https://generativelanguage.googleapis.com/v1beta/"
-    f"models/{MODEL}:generateContent?key={API_KEY}"
-)
+      - name: Generate script
+        env:
+          SKRIPTA_KEY: ${{ secrets.SKRIPTA_KEY }}
+        run: python generate_script.py
 
-data = {
-    "contents": [{"parts": [{"text": prompt}]}],
-    "generationConfig": {
-        "temperature": 0.8,
-        "maxOutputTokens": 700
-    }
-}
-
-request = urllib.request.Request(
-    url,
-    data=json.dumps(data).encode("utf-8"),
-    headers={"Content-Type": "application/json"},
-    method="POST"
-)
-
-try:
-    with urllib.request.urlopen(request, timeout=60) as response:
-        result = json.loads(response.read().decode("utf-8"))
-
-    if "error" in result:
-        raise RuntimeError(json.dumps(result["error"], indent=2))
-
-    candidates = result.get("candidates", [])
-    if not candidates:
-        raise RuntimeError("Gemini returned no candidates: " + json.dumps(result))
-
-    script = candidates[0]["content"]["parts"][0]["text"]
-
-    with open("script.txt", "w", encoding="utf-8") as file:
-        file.write(script)
-
-    print("MIND FORGE SCRIPT GENERATED!")
-    print(script)
-
-except urllib.error.HTTPError as error:
-    print("GEMINI HTTP ERROR:", error.code)
-    print(error.read().decode("utf-8", errors="replace"))
-    raise
-
-except Exception as error:
-    print("GEMINI ERROR:", repr(error))
-    raise
+      - name: Save script
+        uses: actions/upload-artifact@v4
+        with:
+          name: mind-forge-script
+          path: script.txt
+          if-no-files-found: error
+          retention-days: 7
