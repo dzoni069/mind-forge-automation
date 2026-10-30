@@ -1,35 +1,35 @@
 
 import os
 import json
+import sys
+import subprocess
 import urllib.request
 import urllib.error
 
 API_KEY = os.environ.get("SKRIPTA_KEY")
 
 if not API_KEY:
-    raise RuntimeError("SKRIPTA_KEY nije pronađen u GitHub Secrets.")
+    raise RuntimeError("SKRIPTA_KEY nije pronađen.")
 
 MODEL = "gemini-3.5-flash-lite"
+VOICE = "en_US-lessac-medium"
+
 prompt = """
 You are the official scriptwriter for MIND FORGE.
 
-Brand slogan: KNOW MORE. THINK BIGGER.
-
 Create one original English YouTube Shorts narration.
 
-Topic: A surprising psychological fact about human behavior.
+Topic: A fascinating fact about human psychology.
 
 Requirements:
 - 45 to 60 seconds when spoken.
-- Start with a powerful hook.
-- Use simple, natural English.
-- Keep viewers curious.
-- Provide interesting and useful information.
-- Do not invent facts or statistics.
-- End with a memorable sentence.
+- Powerful opening hook.
+- Simple natural English.
+- Interesting and informative.
+- No invented statistics.
+- Memorable ending.
 
 Return only the spoken narration.
-No headings or explanations.
 """
 
 url = (
@@ -38,13 +38,7 @@ url = (
 )
 
 data = {
-    "contents": [
-        {
-            "parts": [
-                {"text": prompt}
-            ]
-        }
-    ],
+    "contents": [{"parts": [{"text": prompt}]}],
     "generationConfig": {
         "temperature": 0.8,
         "maxOutputTokens": 700
@@ -62,23 +56,34 @@ try:
     with urllib.request.urlopen(request, timeout=60) as response:
         result = json.loads(response.read().decode("utf-8"))
 
-    candidates = result.get("candidates", [])
-
-    if not candidates:
-        raise RuntimeError(
-            "Gemini nije vratio scenario: " + json.dumps(result)
-        )
-
-    script = candidates[0]["content"]["parts"][0]["text"]
+    script = result["candidates"][0]["content"]["parts"][0]["text"]
 
     with open("script.txt", "w", encoding="utf-8") as file:
         file.write(script)
 
-    print("MIND FORGE SCRIPT GENERATED!")
-    print(script)
+    print("1. SCRIPT GENERATED!")
 
+    print("2. DOWNLOADING PIPER VOICE...")
+    subprocess.run(
+        [sys.executable, "-m", "piper.download_voices", VOICE],
+        check=True
+    )
+
+    print("3. GENERATING AUDIO...")
+    subprocess.run(
+        [
+            sys.executable, "-m", "piper",
+            "-m", VOICE,
+            "-f", "voice.wav",
+            "--", script
+        ],
+        check=True
+    )
+
+    print("4. MIND FORGE AUDIO GENERATED!")
+    
 except urllib.error.HTTPError as error:
-    print("HTTP ERROR:", error.code)
+    print("GEMINI HTTP ERROR:", error.code)
     print(error.read().decode("utf-8", errors="replace"))
     raise
 
