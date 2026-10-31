@@ -109,13 +109,9 @@ def parse_story(text: str) -> dict[str, Any]:
         if not isinstance(story.get(field), str) or not story[field].strip():
             raise RuntimeError(f"The story response is missing: {field}")
 
-    word_count = len(story["narration"].split())
-    if not 90 <= word_count <= 165:
+        word_count = len(story["narration"].split())
     if not 120 <= word_count <= 190:
-        raise RuntimeError(
-            f"The narration has {word_count} words. It needs 90–165 words for a short video; run again."
-            f"The narration has {word_count} words. It needs 120–190 words for a short video; run again."
-        )
+        raise RuntimeError(f"The narration has {word_count} words. It needs 120–190 words for a short video; run again.")
     return story
 
 
