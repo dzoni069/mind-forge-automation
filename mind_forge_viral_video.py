@@ -27,7 +27,6 @@ SEARCH_MODEL = "gemini-3.5-flash-lite"
 VOICE_MODEL = "gemini-3.8-flash-lite-tts"
 VOICE_NAME = "Achird"
 WIDTH, HEIGHT = 720, 1280
-SCENE_COUNT = 8
 MIN_SCENE_COUNT = 5
 MAX_SCENE_COUNT = 12
 ALLOWED_TRANSITIONS = {
@@ -105,11 +104,14 @@ def parse_story(text: str) -> dict[str, Any]:
         except json.JSONDecodeError as error:
             raise RuntimeError("The story response was not valid JSON. Run the workflow again.") from error
 
+    if not isinstance(story, dict):
+        raise RuntimeError("Gemini did not return a story object. Run the workflow again.")
+
     for field in ("topic", "title", "hook", "narration"):
         if not isinstance(story.get(field), str) or not story[field].strip():
             raise RuntimeError(f"The story response is missing: {field}")
 
-        word_count = len(story["narration"].split())
+    word_count = len(story["narration"].split())
     if not 120 <= word_count <= 190:
         raise RuntimeError(f"The narration has {word_count} words. It needs 120–190 words for a short video; run again.")
     return story
@@ -171,11 +173,10 @@ def choose_story(api_key: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
     prompt = f"""You are the story editor for MIND FORGE, a short-video channel about AI.
 Today's UTC date is {now.strftime('%Y-%m-%d')}. The JSON list below contains recent AI headlines and snippets from Google News RSS. Today's content angle is: {slot}.
 
-Choose the supplied story with the strongest broad short-video potential. Judge potential by: an instantly understandable hook, surprise or curiosity, a real human consequence, relevance to teenagers and adults including older viewers, and visuals that can be shown in a phone-sized video. Prefer stories that people would share with family or friends. A trend is not automatically a good story. If the same development appears in several headlines, that is a useful signal of wider coverage.
+Choose the supplied story with the strongest broad short-video potential. Judge potential by: an instantly understandable hook in the first sentence, surprise or curiosity, a real human consequence, relevance to teenagers and adults including older viewers, and visuals that can be shown in a phone-sized video. Open a clear question early and pay it off before the ending. Prefer stories that people would share with family or friends. A trend is not automatically a good story. If the same development appears in several headlines, that is a useful signal of wider coverage.
 
 Use only facts supported by the supplied headlines and snippets. Do not add details that are not in the feed. Do not claim a story is viral or widely shared; this feed does not provide social-media view counts. Do not invent statistics, quotes, dates, product abilities, or consequences. Avoid partisan campaigning, graphic harm, and fearbait. Explain technical ideas in plain English. If a detail is uncertain, leave it out.
 
-Create one original English narration for a 45–60 second vertical video. Aim for 110–140 spoken words. Structure: a punchy first-sentence hook; quick context; one surprising but verified detail; why it matters to ordinary people; a useful takeaway; a natural question that invites real comments. Avoid generic openings like “You won't believe this.” Do not repeat the headline word for word.
 Create one original English narration for a 65–80 second vertical video. Aim for 145–165 spoken words. Give the explanation enough room to be useful: a punchy first-sentence hook; clear context; one surprising but verified detail; a concrete example of how it could affect everyday people; what is known versus still uncertain; a useful takeaway; and a natural question that invites real comments. Keep sentences easy to follow when heard aloud. Avoid generic openings like “You won't believe this.” Do not repeat the headline word for word.
 
 Return only one valid JSON object with these fields:
@@ -183,16 +184,13 @@ Return only one valid JSON object with these fields:
   "topic": "the story in one sentence",
   "title": "short video title, maximum 8 words",
   "hook": "the first spoken sentence",
-  "narration": "spoken narration only, 110–140 words",
   "narration": "spoken narration only, 145–165 words",
   "scenes": [
-    {{"label": "2–5 word on-screen phrase", "visual": "a simple visual idea such as a phone, family, robot, shield, video, or workplace"}}
     {{"label": "2–5 word on-screen phrase", "visual": "a concrete visual idea for this story beat", "pace": "quick, normal, or linger", "transition": "fade, dissolve, smoothleft, smoothright, wipeleft, wiperight, circleopen, or fadeblack", "transition_seconds": 0.5}}
   ],
   "viral_angle": "why a broad audience may watch or share this, without claiming guaranteed virality",
   "source_ids": [1, 2]
 }}
-Choose source_ids only from the supplied list. Provide exactly 8 scene entries. Use English throughout. The narration must contain only words meant to be spoken; do not include source notes or stage directions.
 Choose source_ids only from the supplied list. Choose between 5 and 12 scenes based on the story's natural visual beats; do not aim for a fixed count. Give each scene a distinct visual idea that follows the narration. Use "quick" for a brief beat, "normal" for a regular beat, or "linger" for an important reveal or takeaway. For every scene after the first, choose a tasteful incoming transition that fits the mood from the listed options and a duration from 0.35 to 0.75 seconds. Keep effects restrained; do not use the same transition for every scene unless it suits the story. The first scene's transition is ignored. Use English throughout. The narration must contain only words meant to be spoken; do not include source notes or stage directions.
 
 Recent story candidates:
@@ -254,7 +252,6 @@ def make_voice(api_key: str, narration: str, destination: Path) -> None:
                                     "speaking clearly to one person. Sound curious and lively on the opening hook, "
                                     "then calm, confident, and human. Use natural short pauses and an easy-to-follow "
                                     "pace around 125–135 words per minute, with slightly longer pauses between ideas. "
-                                    "pace. Adult voice, neutral English accent. Not a commercial, not a movie trailer."
                                     "Adult voice, neutral English accent. Not a commercial, not a movie trailer."
                                 ),
                             }
@@ -296,7 +293,7 @@ def wrap_words(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines[:3]
 
 
-def icon_kind(scene: dict[str, str], topic: str) -> str:
+def icon_kind(scene: dict[str, Any], topic: str) -> str:
     words = f"{scene.get('label', '')} {scene.get('visual', '')} {topic}".lower()
     if any(word in words for word in ("phone", "voice", "call", "scam", "deepfake", "fake video", "camera", "social")):
         return "phone"
@@ -373,8 +370,7 @@ def draw_icon(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, accent: tu
             draw.ellipse((cx + dx - 13, cy + dy - 13, cx + dx + 13, cy + dy + 13), fill=a)
 
 
-def draw_scene(path: Path, scene: dict[str, str], index: int, topic: str) -> None:
-def draw_scene(path: Path, scene: dict[str, str], index: int, total_scenes: int, topic: str) -> None:
+def draw_scene(path: Path, scene: dict[str, Any], index: int, total_scenes: int, topic: str) -> None:
     base, secondary, accent = PALETTES[(index - 1) % len(PALETTES)]
     image = Image.new("RGB", (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(image)
@@ -399,7 +395,6 @@ def draw_scene(path: Path, scene: dict[str, str], index: int, total_scenes: int,
     draw = ImageDraw.Draw(image)
 
     draw.text((52, 55), "MIND FORGE  /  AI, MADE HUMAN", font=ImageFont.truetype(FONT_BOLD_PATH, 22), fill=(238, 245, 255, 235))
-    pill = f"SCENE {index:02d} / {SCENE_COUNT:02d}"
     pill = f"SCENE {index:02d} / {total_scenes:02d}"
     pill_font = ImageFont.truetype(FONT_BOLD_PATH, 18)
     draw.rounded_rectangle((52, 112, 232, 153), radius=20, fill=(5, 10, 28, 175), outline=(*accent, 225), width=2)
@@ -438,19 +433,15 @@ def draw_scene(path: Path, scene: dict[str, str], index: int, total_scenes: int,
     image.convert("RGB").save(path, quality=95)
 
 
-def fallback_scenes(narration: str) -> list[dict[str, str]]:
+def fallback_scenes(narration: str) -> list[dict[str, Any]]:
     words = narration.split()
     count = max(MIN_SCENE_COUNT, min(MAX_SCENE_COUNT, round(len(words) / 15)))
-    scenes: list[dict[str, str]] = []
-    for index in range(SCENE_COUNT):
-        start = round(index * len(words) / SCENE_COUNT)
-        end = round((index + 1) * len(words) / SCENE_COUNT)
+    scenes: list[dict[str, Any]] = []
     for index in range(count):
         start = round(index * len(words) / count)
         end = round((index + 1) * len(words) / count)
         part = words[start:end]
         label = " ".join(part[:5]).strip(" ,.!?;:") or "AI IN REAL LIFE"
-        scenes.append({"label": label, "visual": "A bold illustration that matches this moment"})
         scenes.append(
             {
                 "label": label,
@@ -463,11 +454,10 @@ def fallback_scenes(narration: str) -> list[dict[str, str]]:
     return scenes
 
 
-def scene_list(story: dict[str, Any]) -> list[dict[str, str]]:
+def scene_list(story: dict[str, Any]) -> list[dict[str, Any]]:
     supplied = story.get("scenes", [])
-    scenes: list[dict[str, str]] = []
+    scenes: list[dict[str, Any]] = []
     if isinstance(supplied, list):
-        for item in supplied[:SCENE_COUNT]:
         for item in supplied[:MAX_SCENE_COUNT]:
             if isinstance(item, dict):
                 transition = str(item.get("transition", "fade")).strip().lower()
@@ -491,10 +481,6 @@ def scene_list(story: dict[str, Any]) -> list[dict[str, str]]:
                         "transition_seconds": transition_seconds,
                     }
                 )
-    fallback = fallback_scenes(story["narration"])
-    while len(scenes) < SCENE_COUNT:
-        scenes.append(fallback[len(scenes)])
-    return scenes[:SCENE_COUNT]
     if MIN_SCENE_COUNT <= len(scenes) <= MAX_SCENE_COUNT:
         return scenes
     return fallback_scenes(story["narration"])
@@ -570,14 +556,12 @@ def render_video(story: dict[str, Any], voice_path: Path) -> None:
     image_paths: list[Path] = []
     for index, scene in enumerate(scenes, start=1):
         path = SCENE_DIR / f"scene_{index:02d}.png"
-        draw_scene(path, scene, index, story["topic"])
         draw_scene(path, scene, index, len(scenes), story["topic"])
         image_paths.append(path)
 
     captions_path = OUT / "captions.srt"
     write_captions(story["narration"], duration, captions_path)
 
-    per_scene_duration = duration / len(image_paths)
     # Let the story plan vary each scene's hold time and incoming transition.
     scene_weights = [PACE_WEIGHTS[scene["pace"]] for scene in scenes]
     core_durations = [duration * weight / sum(scene_weights) for weight in scene_weights]
@@ -592,8 +576,6 @@ def render_video(story: dict[str, Any], voice_path: Path) -> None:
         for index in range(1, len(scenes))
     ]
     command: list[str] = ["ffmpeg", "-hide_banner", "-y"]
-    for path in image_paths:
-        command.extend(["-loop", "1", "-framerate", "30", "-t", f"{per_scene_duration:.4f}", "-i", str(path)])
     for path, clip_duration in zip(image_paths, clip_durations):
         command.extend(["-loop", "1", "-framerate", "30", "-t", f"{clip_duration:.4f}", "-i", str(path)])
     audio_input = len(image_paths)
@@ -603,15 +585,12 @@ def render_video(story: dict[str, Any], voice_path: Path) -> None:
     for index in range(len(image_paths)):
         filters.append(
             f"[{index}:v]scale=1080:1920,fps=30,"
-            "zoompan=z='min(zoom+0.00045,1.04)':"
             "zoompan=z='min(zoom+0.00008,1.035)':"
             "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             "d=1:s=1080x1920:fps=30,"
-            f"trim=duration={per_scene_duration:.4f},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v{index}]"
             f"trim=duration={clip_durations[index]:.4f},setpts=PTS-STARTPTS,settb=1/30,setsar=1,format=yuv420p[v{index}]"
         )
 
-    joined = "".join(f"[v{index}]" for index in range(len(image_paths)))
     subtitle_filter = (
         f"subtitles=filename='{captions_path.resolve()}':fontsdir='/usr/share/fonts/truetype/dejavu':"
         "force_style='FontName=DejaVu Sans,FontSize=46,Bold=1,Outline=2,Shadow=0,"
@@ -629,7 +608,6 @@ def render_video(story: dict[str, Any], voice_path: Path) -> None:
         )
         previous = next_label
         timeline_duration += clip_durations[index] - transition_duration
-    filters.append(f"{joined}concat=n={len(image_paths)}:v=1:a=0,{subtitle_filter},format=yuv420p[vout]")
     filters.append(f"[{previous}]{subtitle_filter},format=yuv420p[vout]")
     command.extend(
         [
@@ -642,7 +620,6 @@ def render_video(story: dict[str, Any], voice_path: Path) -> None:
             str(OUT / "mind-forge-viral-video.mp4"),
         ]
     )
-    print(f"Rendering 8 changing visual scenes into a 9:16 video ({duration:.1f}s)...")
     print(f"Rendering {len(scenes)} story-paced visual scenes with selected transitions into a 9:16 video ({duration:.1f}s)...")
     try:
         subprocess.run(command, check=True)
