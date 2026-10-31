@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 import re
@@ -12,15 +13,17 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 API_KEY = os.environ.get("SKRIPTA_KEY", "").strip()
-SEARCH_MODEL = "gemini-2.5-flash-lite"
+SEARCH_MODEL = "gemini-3.5-flash-lite"
 VOICE_MODEL = "gemini-3.8-flash-lite-tts"
 VOICE_NAME = "Achird"
 WIDTH, HEIGHT = 720, 1280
@@ -107,28 +110,45 @@ def parse_story(text: str) -> dict[str, Any]:
     return story
 
 
-def grounded_sources(candidate: dict[str, Any], story: dict[str, Any]) -> list[dict[str, str]]:
-    found: list[dict[str, str]] = []
-    metadata = candidate.get("groundingMetadata", {})
-    for chunk in metadata.get("groundingChunks", []):
-        web = chunk.get("web", {})
-        url = web.get("uri") or web.get("url")
-        if url:
-            found.append({"title": web.get("title", "Source"), "url": url})
+def fetch_news_candidates() -> list[dict[str, Any]]:
+    query = 'AI OR "artificial intelligence" when:7d'
+    params = urlencode({"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"})
+    url = f"https://news.google.com/rss/search?{params}"
+    request = urllib.request.Request(url, headers={"User-Agent": "MIND-FORGE/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=40) as response:
+            root = ET.fromstring(response.read())
+    except (urllib.error.URLError, ET.ParseError) as error:
+        raise RuntimeError(f"Could not load recent AI headlines: {error}") from error
 
-    for item in story.get("sources", []):
-        if isinstance(item, str) and item.startswith("http"):
-            found.append({"title": "Source", "url": item})
-        elif isinstance(item, dict) and item.get("url", "").startswith("http"):
-            found.append({"title": str(item.get("title", "Source")), "url": item["url"]})
-
-    unique: list[dict[str, str]] = []
+    candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for source in found:
-        if source["url"] not in seen:
-            seen.add(source["url"])
-            unique.append(source)
-    return unique[:8]
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        if not title or not link or title.lower() in seen:
+            continue
+        seen.add(title.lower())
+        source = item.find("source")
+        source_name = (source.text or "News source").strip() if source is not None else "News source"
+        raw_summary = item.findtext("description") or ""
+        summary = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]*>", " ", raw_summary))).strip()
+        candidates.append(
+            {
+                "id": len(candidates) + 1,
+                "title": title,
+                "source": source_name,
+                "published": (item.findtext("pubDate") or "").strip(),
+                "summary": summary[:420],
+                "url": link,
+            }
+        )
+        if len(candidates) >= 18:
+            break
+
+    if len(candidates) < 4:
+        raise RuntimeError("The news feed returned too few recent AI stories. Try again later.")
+    return candidates
 
 
 def choose_story(api_key: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
@@ -141,12 +161,14 @@ def choose_story(api_key: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
     else:
         slot = "work, money, creativity, and how AI changes ordinary jobs"
 
+    news = fetch_news_candidates()
+    news_json = json.dumps(news, ensure_ascii=False, indent=2)
     prompt = f"""You are the story editor for MIND FORGE, a short-video channel about AI.
-Today's UTC date is {now.strftime('%Y-%m-%d')}. Use Google Search to find AI stories or public discussions from roughly the last 7 days. Today's content angle is: {slot}.
+Today's UTC date is {now.strftime('%Y-%m-%d')}. The JSON list below contains recent AI headlines and snippets from Google News RSS. Today's content angle is: {slot}.
 
-Choose the story with the strongest broad short-video potential. Judge potential by: an instantly understandable hook, surprise or curiosity, a real human consequence, relevance to teenagers and adults including older viewers, and visuals that can be shown in a phone-sized video. Prefer stories that people would share with family or friends. A trend is not automatically a good story.
+Choose the supplied story with the strongest broad short-video potential. Judge potential by: an instantly understandable hook, surprise or curiosity, a real human consequence, relevance to teenagers and adults including older viewers, and visuals that can be shown in a phone-sized video. Prefer stories that people would share with family or friends. A trend is not automatically a good story. If the same development appears in several headlines, that is a useful signal of wider coverage.
 
-Do not claim a story is viral, widely shared, or trending unless the sources actually support that claim. Do not invent view counts, statistics, quotes, dates, product abilities, or consequences. Avoid partisan campaigning, graphic harm, and fearbait. Explain technical ideas in plain English. If the source material is uncertain, say so in the narration.
+Use only facts supported by the supplied headlines and snippets. Do not add details that are not in the feed. Do not claim a story is viral or widely shared; this feed does not provide social-media view counts. Do not invent statistics, quotes, dates, product abilities, or consequences. Avoid partisan campaigning, graphic harm, and fearbait. Explain technical ideas in plain English. If a detail is uncertain, leave it out.
 
 Create one original English narration for a 45–60 second vertical video. Aim for 110–140 spoken words. Structure: a punchy first-sentence hook; quick context; one surprising but verified detail; why it matters to ordinary people; a useful takeaway; a natural question that invites real comments. Avoid generic openings like “You won't believe this.” Do not repeat the headline word for word.
 
@@ -160,23 +182,47 @@ Return only one valid JSON object with these fields:
     {{"label": "2–5 word on-screen phrase", "visual": "a simple visual idea such as a phone, family, robot, shield, video, or workplace"}}
   ],
   "viral_angle": "why a broad audience may watch or share this, without claiming guaranteed virality",
-  "sources": [{{"title": "source title", "url": "https://..."}}]
+  "source_ids": [1, 2]
 }}
-Provide exactly 8 scene entries. Use English throughout. The narration must contain only words meant to be spoken; do not include source notes or stage directions."""
+Choose source_ids only from the supplied list. Provide exactly 8 scene entries. Use English throughout. The narration must contain only words meant to be spoken; do not include source notes or stage directions.
+
+Recent story candidates:
+{news_json}"""
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{SEARCH_MODEL}:generateContent"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "tools": [{"google_search": {}}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": 2600},
     }
     response = http_json(url, api_key, payload)
-    text, candidate = get_candidate_text(response)
+    text, _candidate = get_candidate_text(response)
     story = parse_story(text)
-    sources = grounded_sources(candidate, story)
-    if not sources:
-        raise RuntimeError("Gemini did not return verifiable source links. Run the workflow again.")
+    source_ids = story.get("source_ids", [])
+    selected_ids: set[int] = set()
+    if isinstance(source_ids, list):
+        for value in source_ids:
+            try:
+                selected_ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+    selected = [item for item in news if item["id"] in selected_ids]
+    if not selected:
+        topic_words = set(re.findall(r"[a-z]{4,}", story["topic"].lower()))
+        ranked = sorted(
+            news,
+            key=lambda item: len(
+                topic_words
+                & set(re.findall(r"[a-z]{4,}", f"{item['title']} {item['summary']}".lower()))
+            ),
+            reverse=True,
+        )
+        selected = ranked[:2]
+    sources = [
+        {"title": f"{item['source']}: {item['title']}", "url": item["url"]}
+        for item in selected[:4]
+    ]
     story["sources"] = sources
+    story["news_candidates"] = news
     story["created_utc"] = now.isoformat(timespec="seconds")
     return story, sources
 
