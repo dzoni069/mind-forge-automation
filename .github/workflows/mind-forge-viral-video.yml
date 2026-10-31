@@ -1,0 +1,43 @@
+name: MIND FORGE - Viral AI Video
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8,12,16 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  make-video:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Get the project files
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install free video tools, fonts and illustration library
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg fonts-dejavu-core
+          python -m pip install --upgrade pip
+          python -m pip install Pillow
+
+      - name: Create researched story, conversational voice and video
+        env:
+          SKRIPTA_KEY: ${{ secrets.SKRIPTA_KEY }}
+        run: python mind_forge_viral_video.py
+
+      - name: Save the video bundle for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: mind-forge-viral-video
+          path: output/
+          if-no-files-found: error
+          retention-days: 7
